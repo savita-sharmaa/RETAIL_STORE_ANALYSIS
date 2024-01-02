@@ -1,0 +1,374 @@
+----------------------creating database-----------------
+CREATE DATABASE RETAILS;
+USE RETAILS;
+use schema PUBLIC;
+
+-------------creating tables---------------------------
+CREATE OR REPLACE TABLE demographic_RAW
+(AGE_DESC	CHAR(20),
+MARITAL_STATUS_CODE	CHAR(5),
+INCOME_DESC	VARCHAR(40),
+HOMEOWNER_DESC	VARCHAR(40),
+HH_COMP_DESC	VARCHAR(50),
+HOUSEHOLD_SIZE_DESC	VARCHAR(50),
+KID_CATEGORY_DESC	VARCHAR(40),
+household_key INT PRIMARY KEY
+);
+
+
+CREATE OR REPLACE TABLE CAMPAIGN_DESC_RAW
+(DESCRIPTION CHAR(10),	
+CAMPAIGN	INT ,
+START_DAY	INT,
+END_DAY INT,
+PRIMARY KEY (DESCRIPTION),
+UNIQUE (CAMPAIGN));
+
+truncate table CAMPAIGN_DESC_RAW;
+
+
+CREATE OR REPLACE TABLE CAMPAIGN_RAW
+(DESCRIPTION	CHAR(10) ,
+household_key	INT,
+CAMPAIGN INT,
+FOREIGN KEY (DESCRIPTION) references CAMPAIGN_DESC_RAW(DESCRIPTION) ,
+FOREIGN KEY (CAMPAIGN) references CAMPAIGN_DESC_RAW(CAMPAIGN),
+FOREIGN KEY (household_key) references demographic_RAW(household_key)
+);
+
+
+CREATE OR REPLACE TABLE PRODUCT_RAW
+(PRODUCT_ID	INT PRIMARY KEY,
+MANUFACTURER 	INT,
+DEPARTMENT	VARCHAR(50),
+BRAND	VARCHAR(30),
+COMMODITY_DESC	VARCHAR(65),
+SUB_COMMODITY_DESC VARCHAR(65)	,
+CURR_SIZE_OF_PRODUCT VARCHAR(15)
+);
+
+
+CREATE OR REPLACE TABLE COUPON_RAW
+(COUPON_UPC	INT,
+PRODUCT_ID	INT,
+CAMPAIGN INT,
+FOREIGN KEY (PRODUCT_ID) references PRODUCT_RAW(PRODUCT_ID),
+FOREIGN KEY (CAMPAIGN) references CAMPAIGN_DESC_RAW(CAMPAIGN)
+);
+
+
+
+CREATE OR REPLACE TABLE COUPON_REDEMPT_RAW
+(household_key	INT,
+DAY	INT,
+COUPON_UPC	INT,
+CAMPAIGN INT,
+FOREIGN KEY (household_key) references demographic_RAW(household_key),
+FOREIGN KEY (CAMPAIGN) references CAMPAIGN_DESC_RAW(CAMPAIGN)
+);
+
+
+
+CREATE OR REPLACE TABLE TRANSACTION_RAW 
+(household_key	INT,
+BASKET_ID	INT,
+DAY	INT,
+PRODUCT_ID	INT,
+QUANTITY	INT,
+SALES_VALUE	FLOAT,
+STORE_ID	INT,
+RETAIL_DISC	FLOAT,
+TRANS_TIME	INT,
+WEEK_NO	INT,
+COUPON_DISC	INT,
+COUPON_MATCH_DISC INT,
+FOREIGN KEY (PRODUCT_ID) references PRODUCT_RAW(PRODUCT_ID),
+FOREIGN KEY (household_key) references demographic_RAW(household_key)
+);
+
+--------------------AWS(S3 bucket) storage Integration________________________________
+
+create or replace storage integration s3_int
+Type = external_stage
+storage_provider = s3
+Enabled = True
+storage_aws_role_arn = 'arn:aws:iam::259829231059:role/sretailraw_role'
+storage_allowed_locations = ('s3://sretailraw/');
+
+describe integration s3_int;
+
+-------------------------creating stage ----------------------
+
+create or replace stage sretail
+URL = 's3://sretailraw/'
+file_format = CSV
+storage_integration = s3_int;
+
+show stages;
+list @sretail
+
+----------------------------- create pipe that will send the data from stage to tables in snowflake----------
+
+create or replace pipe sretail_CAMPAIGN_DESC_RAW_pipe
+auto_ingest = TRUE as
+copy into "RETAILS"."PUBLIC"."CAMPAIGN_DESC_RAW"  ---databse/schema/table
+from '@sretail/CAMPAIGN_DESC/'       ---stage_name/s3_bucket_folder_name
+file_format = CSV;              ----csv_file_format_name
+
+create or replace pipe sretail_CAMPAIGN_RAW_pipe
+auto_ingest = TRUE as
+copy into "RETAILS"."PUBLIC"."CAMPAIGN_RAW"  ---databse/schema/table
+from '@sretail/CAMPAIGN/'       ---stage_name/s3_bucket_folder_name
+file_format = CSV;
+
+create or replace pipe sretail_COUPON_RAW_pipe
+auto_ingest = TRUE as
+copy into "RETAILS"."PUBLIC"."COUPON_RAW"  ---databse/schema/table
+from '@sretail/COUPON/'       ---stage_name/s3_bucket_folder_name
+file_format = CSV;
+
+create or replace pipe sretail_COUPON_REDEMPT_RAW_pipe
+auto_ingest = TRUE as
+copy into "RETAILS"."PUBLIC"."COUPON_REDEMPT_RAW"  ---databse/schema/table
+from '@sretail/COUPON_REDEMPT/'       ---stage_name/s3_bucket_folder_name
+file_format = CSV;
+
+create or replace pipe sretail_DEMOGRAPHIC_RAW_pipe
+auto_ingest = TRUE as
+copy into "RETAILS"."PUBLIC"."DEMOGRAPHIC_RAW"  ---databse/schema/table
+from '@sretail/DEMOGRAPHIC/'       ---stage_name/s3_bucket_folder_name
+file_format = CSV;
+
+create or replace pipe sretail_PRODUCT_RAW_pipe
+auto_ingest = TRUE as
+copy into "RETAILS"."PUBLIC"."PRODUCT_RAW"  ---databse/schema/table
+from '@sretail/PRODUCT/'       ---stage_name/s3_bucket_folder_name
+file_format = CSV;
+
+
+create or replace pipe sretail_TRANSACTION_RAW_pipe
+auto_ingest = TRUE as
+copy into "RETAILS"."PUBLIC"."TRANSACTION_RAW"  ---databse/schema/table
+from '@sretail/TRANSACTION/'       ---stage_name/s3_bucket_folder_name
+file_format = CSV;
+
+show pipes;
+
+alter pipe sretail_CAMPAIGN_DESC_RAW_pipe refresh;
+alter pipe sretail_CAMPAIGN_RAW_pipe refresh;
+alter pipe sretail_COUPON_RAW_pipe refresh;
+alter pipe sretail_COUPON_REDEMPT_RAW_pipe refresh;
+alter pipe sretail_DEMOGRAPHIC_RAW_pipe refresh;
+alter pipe sretail_PRODUCT_RAW_pipe refresh;
+alter pipe sretail_TRANSACTION_RAW_pipe refresh;
+
+
+select * from CAMPAIGN_RAW;
+select * from CAMPAIGN_DESC_RAW;
+select * from COUPON_RAW;
+select * from COUPON_REDEMPT_RAW;
+select * from RETAILS.PUBLIC.DEMOGRAPHIC_RAW;
+select * from PRODUCT_RAW;
+select * from TRANSACTION_RAW;
+select count(*) from TRANSACTION_RAW;
+
+select * from RETAILS.PUBLIC.COUPON_REDEMPT_NEW limit 5;
+
+
+/*1.	Customer Demographics KPIs:
+
+/*A. Count of unique households: Measure the total number of unique households in the Demographic table.*/
+SELECT COUNT(DISTINCT HOUSEHOLD_KEY) AS TOTAL_HOUSEHOLDS FROM DEMOGRAPHIC_RAW; --2,500 
+
+/*B. Household composition distribution: Analyze the distribution of household compositions (HH_COMP_DESC) to understand the composition of households.*/
+SELECT HH_COMP_DESC,COUNT(DISTINCT HOUSEHOLD_KEY) AS TOTAL_HOUSEHOLDS 
+FROM DEMOGRAPHIC_RAW
+GROUP BY 1
+ORDER BY 2 DESC;
+
+/*C. Age distribution: Calculate the percentage or count of customers in different age groups (AGE_DESC).*/
+SELECT AGE_DESC,TOTAL_HOUSEHOLDS,ROUND(TOTAL_HOUSEHOLDS/2500 * 100,2) AS PERC_AGEWISE_HOUSEHOLDS_DISTR
+FROM
+(SELECT AGE_DESC,
+COUNT(DISTINCT HOUSEHOLD_KEY) AS TOTAL_HOUSEHOLDS
+FROM demographic_RAW 
+GROUP BY 1
+ORDER BY 2 DESC)
+GROUP BY 1,2;
+
+/*D. Marital status distribution: Analyze the proportion of customers in different marital status categories (MARITAL_STATUS_CODE)*/
+SELECT MARITAL_STATUS_CODE , 
+COUNT(DISTINCT HOUSEHOLD_KEY) AS TOTAL_HOUSEHOLDS,
+ROUND(COUNT(DISTINCT HOUSEHOLD_KEY) / 2500 * 100 , 2) AS PERC_MARITAL_HOUSEHOLDS_DISTR
+FROM demographic_RAW
+GROUP BY 1
+ORDER BY 2 DESC;
+
+/*E.	Income distribution: Determine the distribution of customers across income levels (INCOME_DESC).*/
+SELECT INCOME_DESC , 
+COUNT(DISTINCT HOUSEHOLD_KEY) AS TOTAL_HOUSEHOLDS,
+ROUND(COUNT(DISTINCT HOUSEHOLD_KEY) / 2500 * 100 , 2) AS PERC_INCOME_HOUSEHOLDS_DISTR
+FROM demographic_RAW
+GROUP BY 1
+ORDER BY 2 DESC;
+
+/*F. Homeownership distribution: Calculate the percentage or count of customers who own or rent their homes (HOMEOWNER_DESC).*/
+SELECT HOMEOWNER_DESC , 
+COUNT(DISTINCT HOUSEHOLD_KEY) AS TOTAL_HOUSEHOLDS,
+ROUND(COUNT(DISTINCT HOUSEHOLD_KEY) / 2500 * 100 , 2) AS PERC_HOMEOWNER_DESC_DISTR
+FROM demographic_RAW
+GROUP BY 1
+ORDER BY 2 DESC;
+
+
+/*G Analyse average sales amount and averages of different discounts for each household . */
+SELECT T.HOUSEHOLD_KEY,D.AGE_DESC,D.MARITAL_STATUS_CODE,D.INCOME_DESC,AVG(T.SALES_VALUE)AS AVG_AMOUNT,
+AVG(T.RETAIL_DISC)AS AVG_RETAIL_DIS,AVG(T.COUPON_DISC)AS AVG_COUPON_DISC,AVG(T.COUPON_MATCH_DISC)AS AVG_COUP_MATCH_DISC
+FROM TRANSACTION_NEW T
+LEFT OUTER JOIN demographic_RAW D ON T.HOUSEHOLD_KEY =D.HOUSEHOLD_KEY
+GROUP BY 1,2,3,4
+ORDER BY 1;
+
+/* 2. Campaign KPIs:
+
+/*A. Number of campaigns: Count the total number of campaigns in the Campaign table.*/
+select count(CAMPAIGN) as TOT_CAMPAIGNS from CAMPAIGN_RAW;
+
+/*B. Campaign duration: Calculate the duration of each campaign by subtracting the start day from the end day (in the Campaign_desc table).*/
+SELECT DESCRIPTION, CAMPAIGN,START_DAY,END_DAY, (END_DAY - START_DAY) as CAMPAIGN_DURATION FROM CAMPAIGN_DESC_RAW;
+
+/*C. Campaign effectiveness: Analyze the number of households associated with each campaign (in the Campaign table) to measure campaign reach. */
+SELECT DESCRIPTION, CAMPAIGN, COUNT(DISTINCT HOUSEHOLD_KEY) AS TOTAL_HOUSEHOLDS, ROUND(COUNT(DISTINCT(HOUSEHOLD_KEY))/2500 * 100, 2) AS PERC_HOUSHOLD_ASSOCTD
+FROM CAMPAIGN_RAW
+GROUP BY 1,2
+ORDER BY 3 DESC;
+
+/*D. Analyse effect of campaign on sales amount and quantity */
+SELECT C.HOUSEHOLD_KEY,C.DESCRIPTION, SUM(T.QUANTITY) AS TOT_QTY,SUM(T.SALES_VALUE)AS TOT_AMOUNT FROM TRANSACTION_NEW T
+INNER JOIN CAMPAIGN_RAW C ON C.HOUSEHOLD_KEY = T.HOUSEHOLD_KEY
+GROUP BY 1,2
+ORDER BY 4 DESC;
+
+/*3. Coupon KPIs:
+
+/*A. Coupon redemption rate: Calculate the percentage of coupons redeemed (from the coupon_redempt table) compared to the total number of coupons distributed (from the Coupon table).*/
+SELECT COUNT(DISTINCT(C.COUPON_UPC)) AS COUPONS_DISTRIBUTED,COUNT(DISTINCT(CR.COUPON_UPC)) AS COUPONS_REDEMPT FROM COUPON_RAW C
+LEFT OUTER JOIN COUPON_REDEMPT_NEW CR ON CR.CAMPAIGN = C.CAMPAIGN;
+
+
+SELECT COUPONS_DISTRIBUTED, COUPONS_REDEMPT, ROUND(COUPONS_REDEMPT/COUPONS_DISTRIBUTED*100, 2) AS PERCENTAGE_COUPONS_REDEEMED FROM 
+(SELECT COUNT(DISTINCT(C.COUPON_UPC)) AS COUPONS_DISTRIBUTED,COUNT(DISTINCT(CR.COUPON_UPC)) AS COUPONS_REDEMPT FROM COUPON_RAW C
+LEFT OUTER JOIN COUPON_REDEMPT_NEW CR ON CR.CAMPAIGN = C.CAMPAIGN);
+
+/*B. Coupon usage by campaign: Measure the number of coupon redemptions (from the coupon_redempt table) for each campaign (in the Coupon table).*/
+SELECT CR.CAMPAIGN, COUNT(DISTINCT(CR.COUPON_UPC)) AS COUPONS_REDEEMED, COUNT(DISTINCT(C.COUPON_UPC)) AS COUPONS_DISTRIBUTETD, ROUND(COUNT(DISTINCT(CR.COUPON_UPC))/COUNT(DISTINCT(C.COUPON_UPC))*100,2) AS PERC_COUPN_REDMP_BY_CAMPAIGN
+FROM COUPON_REDEMPT_NEW CR
+LEFT OUTER JOIN COUPON_RAW C ON CR.CAMPAIGN = C.CAMPAIGN
+GROUP BY 1
+ORDER BY 2 DESC;
+
+/* 4. Product KPIs:
+
+/*A. Sales value: Calculate the total sales value for each product (in the Transaction_data table) to identify top-selling products.*/
+SELECT PRODUCT_ID,SUM(QUANTITY) AS TOT_QTY, SUM(SALES_VALUE) AS TOT_SALES FROM TRANSACTION_NEW
+GROUP BY 1 
+ORDER BY 3 DESC;
+
+/*B. Manufacturer distribution: Analyze the distribution of products across different manufacturers (in the Product table).*/
+SELECT MANUFACTURER, COUNT(DISTINCT(PRODUCT_ID)) AS PRODUCTS_COUNTS FROM PRODUCT_RAW 
+GROUP BY 1
+ORDER BY 2 DESC;
+
+/*C. Department-wise sales: Measure the sales value & discounts by department (in the Product table) to understand which departments contribute most to revenue.*/
+SELECT P.DEPARTMENT,SUM(T.QUANTITY) AS TOT_QUANTITY, SUM(T.SALES_VALUE) AS TOT_SALES_AMOUNT,SUM(T.RETAIL_DISC) AS TOT_RETAIL_DISC, SUM(T.COUPON_DISC) AS TOT_COUPON_DISC, SUM(T.COUPON_MATCH_DISC) AS TOT_COUPON_MATCH_DISC
+FROM PRODUCT_RAW P
+LEFT OUTER JOIN TRANSACTION_NEW T ON P.PRODUCT_ID =T.PRODUCT_ID
+GROUP BY 1
+ORDER BY 3 DESC;
+
+/*D. Brand-wise sales: Calculate the sales value, quantity sold and total discount for each brand (in the Product table) to identify top-selling brands.*/
+
+SELECT P. BRAND, SUM(T.QUANTITY) AS TOT_QUANTITY, SUM(T.SALES_VALUE) AS TOT_SALES_AMOUNT,SUM(T.RETAIL_DISC) AS TOT_RETAIL_DISC, SUM(T.COUPON_DISC) AS TOT_COUPON_DISC, SUM(T.COUPON_MATCH_DISC) AS TOT_COUPON_MATCH_DISC
+FROM PRODUCT_RAW P
+LEFT OUTER JOIN TRANSACTION_NEW T ON P.PRODUCT_ID =T.PRODUCT_ID
+GROUP BY 1
+ORDER BY 3 DESC;
+
+/*5. Transaction KPIs:
+
+/*A. Total sales value: Calculate the sum of sales values (in the Transaction_data table) to measure overall revenue.*/
+SELECT SUM(SALES_VALUE) AS OVERALL_REVENUE FROM TRANSACTION_NEW;
+
+/*B. Average transaction value: Calculate the average sales value per transaction to understand customer spending patterns.*/
+SELECT ROUND(SUM(SALES_VALUE)/COUNT(HOUSEHOLD_KEY),2) AS AVERAGE_TRANSACTION_VALUE FROM TRANSACTION_NEW;
+
+/*C. Quantity sold: Measure the total quantity sold (in the Transaction_data table) to understand product demand.*/
+SELECT SUM(QUANTITY) AS TOTAL_QTY_SOLD FROM TRANSACTION_NEW;
+
+/*D. Discounts: Analyze the amount and impact of discounts (RETAIL_DISC, COUPON_DISC, COUPON_MATCH_DISC) on sales value.*/
+SELECT SUM(SALES_VALUE) AS OVERALL_REVENUE,SUM(RETAIL_DISC) AS TOT_RETAIL_DISC, SUM(COUPON_DISC)AS TOT_COUPON_DISC, SUM(COUPON_MATCH_DISC) AS TOT_COUP_MATCH_DISC FROM TRANSACTION_NEW;
+
+/*E. Analyse average sale of each product using tables product_raw and transaction table.*/
+SELECT P.COMMODITY_DESC,ROUND(AVG(T.SALES_VALUE),2) AS AVERAGE_SALE, ROUND(AVG(T.RETAIL_DISC),2) AS AVG_RETAIL_DISC, ROUND(AVG(T.COUPON_DISC),2) AS AVG_COUP_DISC, ROUND(AVG(T.COUPON_MATCH_DISC),2) AS AVG_COUP_MATCH_DISC FROM TRANSACTION_NEW T
+INNER JOIN PRODUCT_RAW P ON P.PRODUCT_ID = T.PRODUCT_ID
+GROUP BY 1
+ORDER BY 2 DESC;
+
+/*F. Analyse products bought together.*/
+SELECT T.BASKET_ID, P.COMMODITY_DESC, P.SUB_COMMODITY_DESC, SUM(T.QUANTITY) FROM TRANSACTION_NEW T
+LEFT OUTER JOIN PRODUCT_RAW P ON T.PRODUCT_ID = P.PRODUCT_ID
+GROUP BY 1,2,3
+ORDER BY 1;
+
+/* CREATING PROCEDURES AND TASKS FOR AUTOMATION-------------------------------------------------*/
+
+
+CREATE OR REPLACE PROCEDURE Household_kpi()
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+ CREATE OR REPLACE TABLE Household_kpi AS (SELECT T.HOUSEHOLD_KEY,D.AGE_DESC,D.MARITAL_STATUS_CODE,D.INCOME_DESC,AVG(T.SALES_VALUE)AS AVG_AMOUNT,
+AVG(T.RETAIL_DISC)AS AVG_RETAIL_DIS,AVG(T.COUPON_DISC)AS AVG_COUPON_DISC,AVG(T.COUPON_MATCH_DISC)AS AVG_COUP_MATCH_DISC
+FROM TRANSACTION_NEW T
+LEFT OUTER JOIN demographic_RAW D ON T.HOUSEHOLD_KEY =D.HOUSEHOLD_KEY
+GROUP BY 1,2,3,4
+ORDER BY 1);
+$$;
+
+CREATE OR REPLACE PROCEDURE DEPTARTMENT_KPI()
+RETURNS STRING
+LANGUAGE SQL
+AS
+$$
+SELECT P.DEPARTMENT,SUM(T.QUANTITY) AS TOT_QUANTITY, SUM(T.SALES_VALUE) AS TOT_SALES_AMOUNT,SUM(T.RETAIL_DISC) AS TOT_RETAIL_DISC, SUM(T.COUPON_DISC) AS TOT_COUPON_DISC, SUM(T.COUPON_MATCH_DISC) AS TOT_COUPON_MATCH_DISC
+FROM PRODUCT_RAW P
+LEFT OUTER JOIN TRANSACTION_NEW T ON P.PRODUCT_ID =T.PRODUCT_ID
+GROUP BY 1
+ORDER BY 3 DESC;
+$$;
+
+SHOW PROCEDURES;
+
+CALL Household_kpi();
+
+CREATE OR REPLACE TASK  Household_kpi_TASK
+WAREHOUSE = COMPUTE_WH
+SCHEDULE = 'using cron 02 13 * * 2 UTC' 
+AS CALL Household_kpi();
+
+CREATE OR REPLACE TASK DEPARTMENT_KPI_TASK
+WAREHOUSE = COMPUTE_WH
+SCHEDULE = 'USING CRON 30 13 * * 2 UTC'
+AS CALL DEPTARTMENT_KPI();
+select current_timestamp();
+
+SHOW TASKS;
+
+ALTER TASK   Household_kpi_TASK RESUME;
+ALTER TASK   DEPARTMENT_KPI_TASK RESUME;
+
+ALTER TASK  Household_kpi_TASK SUSPEND; 
+ALTER TASK  DEPARTMENT_KPI_TASK SUSPEND; 
+
+SELECT * FROM Household_kpi;
