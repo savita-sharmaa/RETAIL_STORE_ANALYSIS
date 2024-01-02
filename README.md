@@ -1,3 +1,5 @@
+RETAIL_STORE_ANALYSIS
+
 This project consists dataset  of a retail store. The retail store conducted a campaign and dustributed coupons. 
 Coupon discounts are provided to customers who  their redeemed coupons against specified products.
 This project consists 7 tables:
