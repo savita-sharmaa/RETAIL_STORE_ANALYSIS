@@ -10,3 +10,4 @@ EDA_Retail_Store.IPYNB: This file contains Python code regarding Exploratory Dat
 retail_analysis_SQL_script: The files is generated in snowflake and contains the code to perform ad-hoc-queries.
 
 Sretail.analysis: This file contains power bi reports made using the above said dataset to demonstrate the various measures and trends.
+https://www.novypro.com/profile_projects/savita-sharma
